@@ -76,3 +76,15 @@ app.get('/api/spec', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch OpenAPI specification' });
   }
 });
+
+// Export for Vercel
+module.exports = app;
+
+// For local development
+if (require.main === module) {
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`Pica Loco API Documentation running on port ${port}`);
+    console.log(`Visit: http://localhost:${port}/docs`);
+  });
+}
