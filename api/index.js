@@ -42,38 +42,20 @@ async function fetchAndEnhanceSpec() {
       }
     };
     
+    // Ensure the spec has the correct host/server info for testing
+    spec.servers = [
+      {
+        url: SUPABASE_URL + '/rest/v1',
+        description: 'Pica Loco API Server'
+      }
+    ];
+    
     return spec;
   } catch (error) {
     console.error('Failed to fetch OpenAPI spec:', error);
     throw error;
   }
 }
-
-// Custom Swagger UI options
-const swaggerUiOptions = {
-  explorer: true,
-  customCss: `
-    .swagger-ui .topbar { display: none; }
-    .swagger-ui .info .title { 
-      color: #3ECF8E; 
-      font-family: 'Inter', sans-serif;
-    }
-    .swagger-ui .scheme-container { 
-      background: #1a1a1a; 
-      border: 1px solid #3ECF8E;
-    }
-  `,
-  customSiteTitle: "Pica Loco API Documentation",
-  swaggerOptions: {
-    // Remove the custom URL - we'll serve the spec ourselves
-    requestInterceptor: (request) => {
-      // Add required headers for Supabase API calls
-      request.headers['apikey'] = SUPABASE_ANON_KEY;
-      request.headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
-      return request;
-    }
-  }
-};
 
 // Middleware for basic logging
 app.use((req, res, next) => {
@@ -135,33 +117,68 @@ app.get('/api/spec', async (req, res) => {
   }
 });
 
-// Setup Swagger UI with proper static asset serving
-app.use('/docs', swaggerUi.serve);
-
-// Create the docs endpoint that loads our custom spec
-app.get('/docs', async (req, res) => {
+// Initialize Swagger UI with a placeholder spec first
+async function initializeSwaggerUI() {
   try {
-    // Fetch the spec dynamically
+    // Fetch the initial spec
     const spec = await fetchAndEnhanceSpec();
     
-    // Generate the Swagger UI HTML with our spec
-    const html = swaggerUi.generateHTML(spec, swaggerUiOptions);
-    res.send(html);
+    // Cache it
+    cachedSpec = spec;
+    cacheTime = Date.now();
+    
+    // Custom Swagger UI options
+    const swaggerUiOptions = {
+      explorer: true,
+      customCss: `
+        .swagger-ui .topbar { display: none; }
+        .swagger-ui .info .title { 
+          color: #3ECF8E; 
+          font-family: 'Inter', sans-serif;
+        }
+        .swagger-ui .scheme-container { 
+          background: #1a1a1a; 
+          border: 1px solid #3ECF8E;
+        }
+      `,
+      customSiteTitle: "Pica Loco API Documentation",
+      swaggerOptions: {
+        requestInterceptor: (request) => {
+          // Add required headers for Supabase API calls
+          request.headers['apikey'] = SUPABASE_ANON_KEY;
+          request.headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
+          return request;
+        }
+      }
+    };
+    
+    // Setup Swagger UI with the fetched spec
+    app.use('/docs', swaggerUi.serve, swaggerUi.setup(spec, swaggerUiOptions));
+    
+    console.log('Swagger UI initialized successfully');
+    
   } catch (error) {
-    console.error('Error generating Swagger UI:', error);
-    res.status(500).send(`
-      <html>
-        <head><title>Pica Loco API Documentation - Error</title></head>
-        <body>
-          <h1>Error Loading API Documentation</h1>
-          <p>Unable to fetch the API specification from Supabase.</p>
-          <p>Error: ${error.message}</p>
-          <p><a href="/health">Check service health</a></p>
-        </body>
-      </html>
-    `);
+    console.error('Failed to initialize Swagger UI:', error);
+    
+    // Fallback: setup with a basic error spec
+    const errorSpec = {
+      openapi: '3.0.0',
+      info: {
+        title: 'Pica Loco API - Error',
+        version: '1.0.0',
+        description: 'Unable to load API specification from Supabase'
+      },
+      paths: {}
+    };
+    
+    app.use('/docs', swaggerUi.serve, swaggerUi.setup(errorSpec, {
+      customSiteTitle: "Pica Loco API Documentation - Error"
+    }));
   }
-});
+}
+
+// Initialize Swagger UI when the module loads
+initializeSwaggerUI();
 
 // Export for Vercel
 module.exports = app;
