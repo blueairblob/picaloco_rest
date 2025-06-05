@@ -1,4 +1,4 @@
-// api/index.js
+// api/index.js - Fixed Synchronous Version
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 
@@ -12,15 +12,38 @@ console.log('Environment check:');
 console.log('SUPABASE_URL:', SUPABASE_URL ? 'Set' : 'Missing');
 console.log('SUPABASE_ANON_KEY:', SUPABASE_ANON_KEY ? 'Set (length: ' + SUPABASE_ANON_KEY.length + ')' : 'Missing');
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Missing required environment variables: SUPABASE_URL, SUPABASE_ANON_KEY');
-  process.exit(1);
-}
+// Create a basic fallback spec
+const fallbackSpec = {
+  openapi: '3.0.0',
+  info: {
+    title: 'Pica Loco API',
+    version: '1.0.0',
+    description: 'API documentation is loading from Supabase...'
+  },
+  servers: SUPABASE_URL ? [
+    {
+      url: SUPABASE_URL + '/rest/v1',
+      description: 'Pica Loco API Server'
+    }
+  ] : [],
+  paths: {
+    '/health': {
+      get: {
+        summary: 'Health Check',
+        description: 'Check if the API documentation service is running',
+        responses: {
+          '200': {
+            description: 'Service is healthy'
+          }
+        }
+      }
+    }
+  }
+};
 
 // Cache for the OpenAPI spec
 let cachedSpec = null;
 let cacheTime = null;
-let initError = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Function to fetch and enhance the OpenAPI spec
@@ -32,17 +55,15 @@ async function fetchAndEnhanceSpec() {
     const response = await fetch(`${SUPABASE_URL}/rest/v1/?apikey=${SUPABASE_ANON_KEY}`);
     
     console.log('Supabase response status:', response.status);
-    console.log('Supabase response headers:', Object.fromEntries(response.headers.entries()));
     
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Supabase error response:', errorText);
-      throw new Error(`Supabase API returned ${response.status}: ${response.statusText} - ${errorText}`);
+      throw new Error(`Supabase API returned ${response.status}: ${response.statusText}`);
     }
     
     const spec = await response.json();
-    console.log('Spec received, info:', spec.info);
-    console.log('Spec paths count:', Object.keys(spec.paths || {}).length);
+    console.log('Spec received, paths count:', Object.keys(spec.paths || {}).length);
     
     // Enhance the spec with custom metadata
     spec.info = {
@@ -95,7 +116,6 @@ app.get('/debug', (req, res) => {
       hasCachedSpec: !!cachedSpec,
       cacheTime: cacheTime ? new Date(cacheTime).toISOString() : null
     },
-    initError: initError ? initError.message : null,
     timestamp: new Date().toISOString()
   });
 });
@@ -103,6 +123,15 @@ app.get('/debug', (req, res) => {
 // Enhanced health check endpoint
 app.get('/health', async (req, res) => {
   try {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return res.status(503).json({
+        status: 'unhealthy',
+        service: 'Pica Loco API Documentation',
+        error: 'Missing environment variables',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     const fetch = (await import('node-fetch')).default;
     const supabaseCheck = await fetch(`${SUPABASE_URL}/rest/v1/`, {
       headers: { 'apikey': SUPABASE_ANON_KEY }
@@ -111,13 +140,12 @@ app.get('/health', async (req, res) => {
     const supabaseStatus = supabaseCheck.ok ? 'connected' : 'disconnected';
     
     res.json({
-      status: 'healthy',
+      status: supabaseStatus === 'connected' ? 'healthy' : 'degraded',
       service: 'Pica Loco API Documentation',
       timestamp: new Date().toISOString(),
       supabase: supabaseStatus,
       supabaseUrl: SUPABASE_URL,
-      hasSpec: !!cachedSpec,
-      initError: initError ? initError.message : null
+      hasSpec: !!cachedSpec
     });
   } catch (error) {
     res.status(503).json({
@@ -133,6 +161,13 @@ app.get('/health', async (req, res) => {
 // Enhanced API spec endpoint with caching
 app.get('/api/spec', async (req, res) => {
   try {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return res.status(500).json({ 
+        error: 'Missing environment variables',
+        details: 'SUPABASE_URL and SUPABASE_ANON_KEY must be set'
+      });
+    }
+
     // Check cache first
     if (cachedSpec && cacheTime && Date.now() - cacheTime < CACHE_DURATION) {
       return res.json(cachedSpec);
@@ -156,83 +191,56 @@ app.get('/api/spec', async (req, res) => {
   }
 });
 
-// Initialize Swagger UI with better error handling
-async function initializeSwaggerUI() {
-  try {
-    console.log('Starting Swagger UI initialization...');
-    
-    // Fetch the initial spec
-    const spec = await fetchAndEnhanceSpec();
-    
-    // Cache it
-    cachedSpec = spec;
-    cacheTime = Date.now();
-    
-    // Custom Swagger UI options
-    const swaggerUiOptions = {
-      explorer: true,
-      customCss: `
-        .swagger-ui .topbar { display: none; }
-        .swagger-ui .info .title { 
-          color: #3ECF8E; 
-          font-family: 'Inter', sans-serif;
-        }
-        .swagger-ui .scheme-container { 
-          background: #1a1a1a; 
-          border: 1px solid #3ECF8E;
-        }
-      `,
-      customSiteTitle: "Pica Loco API Documentation",
-      swaggerOptions: {
-        requestInterceptor: (request) => {
-          // Add required headers for Supabase API calls
-          request.headers['apikey'] = SUPABASE_ANON_KEY;
-          request.headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
-          return request;
-        }
+// Custom Swagger UI options
+const swaggerUiOptions = {
+  explorer: true,
+  customCss: `
+    .swagger-ui .topbar { display: none; }
+    .swagger-ui .info .title { 
+      color: #3ECF8E; 
+      font-family: 'Inter', sans-serif;
+    }
+    .swagger-ui .scheme-container { 
+      background: #1a1a1a; 
+      border: 1px solid #3ECF8E;
+    }
+  `,
+  customSiteTitle: "Pica Loco API Documentation",
+  swaggerOptions: {
+    requestInterceptor: (request) => {
+      // Add required headers for Supabase API calls
+      if (SUPABASE_ANON_KEY) {
+        request.headers['apikey'] = SUPABASE_ANON_KEY;
+        request.headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
       }
-    };
-    
-    // Setup Swagger UI with the fetched spec
-    app.use('/docs', swaggerUi.serve, swaggerUi.setup(spec, swaggerUiOptions));
-    
-    console.log('Swagger UI initialized successfully with', Object.keys(spec.paths || {}).length, 'paths');
-    
-  } catch (error) {
-    console.error('Failed to initialize Swagger UI:', error);
-    initError = error;
-    
-    // Fallback: setup with a diagnostic error spec
-    const errorSpec = {
-      openapi: '3.0.0',
-      info: {
-        title: 'Pica Loco API - Initialization Error',
-        version: '1.0.0',
-        description: `Unable to load API specification from Supabase. Error: ${error.message}`
-      },
-      paths: {
-        '/debug': {
-          get: {
-            summary: 'Check debug information',
-            description: 'Visit /debug endpoint to see detailed error information',
-            responses: {
-              '200': {
-                description: 'Debug information'
-              }
-            }
-          }
-        }
-      }
-    };
-    
-    app.use('/docs', swaggerUi.serve, swaggerUi.setup(errorSpec, {
-      customSiteTitle: "Pica Loco API Documentation - Error"
-    }));
+      return request;
+    }
   }
-}
+};
 
-// Initialize Swagger UI when the module loads
-initializeSwaggerUI();
+// Setup Swagger UI synchronously with fallback spec
+console.log('Setting up Swagger UI with fallback spec...');
+app.use('/docs', swaggerUi.serve);
+app.get('/docs', swaggerUi.setup(fallbackSpec, swaggerUiOptions));
+
+// Background task to fetch real spec and update
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  fetchAndEnhanceSpec()
+    .then(spec => {
+      console.log('Real spec fetched, updating cache');
+      cachedSpec = spec;
+      cacheTime = Date.now();
+      
+      // Update the Swagger UI with the real spec
+      app.get('/docs', swaggerUi.setup(spec, swaggerUiOptions));
+      console.log('Swagger UI updated with real spec containing', Object.keys(spec.paths || {}).length, 'paths');
+    })
+    .catch(error => {
+      console.error('Failed to fetch real spec:', error);
+    });
+} else {
+  console.log('Environment variables missing, using fallback spec only');
+}
 
 // Export for Vercel
 module.exports = app;
