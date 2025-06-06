@@ -1,4 +1,13 @@
-// api/index.js - Fixed Synchronous Version
+// api/index.js - Fixed Synchronous Version with dotenv
+// Load environment variables from .env.local for local development
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    require('dotenv').config({ path: '.env.local' });
+  } catch (error) {
+    console.log('dotenv not available or .env.local not found - continuing...');
+  }
+}
+
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 
@@ -7,10 +16,12 @@ const app = express();
 // Environment variables validation
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_SCHEMA = process.env.SUPABASE_SCHEMA || 'public';
 
 console.log('Environment check:');
 console.log('SUPABASE_URL:', SUPABASE_URL ? 'Set' : 'Missing');
 console.log('SUPABASE_ANON_KEY:', SUPABASE_ANON_KEY ? 'Set (length: ' + SUPABASE_ANON_KEY.length + ')' : 'Missing');
+console.log('SUPABASE_SCHEMA:', SUPABASE_SCHEMA);
 
 // Create a basic fallback spec
 const fallbackSpec = {
@@ -52,7 +63,12 @@ async function fetchAndEnhanceSpec() {
     console.log('Fetching spec from:', `${SUPABASE_URL}/rest/v1/?apikey=***`);
     
     const fetch = (await import('node-fetch')).default;
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/?apikey=${SUPABASE_ANON_KEY}`);
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/?apikey=${SUPABASE_ANON_KEY}`, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Accept-Profile': SUPABASE_SCHEMA
+      }
+    });
     
     console.log('Supabase response status:', response.status);
     
@@ -134,7 +150,10 @@ app.get('/health', async (req, res) => {
 
     const fetch = (await import('node-fetch')).default;
     const supabaseCheck = await fetch(`${SUPABASE_URL}/rest/v1/`, {
-      headers: { 'apikey': SUPABASE_ANON_KEY }
+      headers: { 
+        'apikey': SUPABASE_ANON_KEY,
+        'Accept-Profile': SUPABASE_SCHEMA
+      }
     });
     
     const supabaseStatus = supabaseCheck.ok ? 'connected' : 'disconnected';
@@ -212,6 +231,8 @@ const swaggerUiOptions = {
       if (SUPABASE_ANON_KEY) {
         request.headers['apikey'] = SUPABASE_ANON_KEY;
         request.headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
+        request.headers['Accept-Profile'] = SUPABASE_SCHEMA;
+        request.headers['Content-Profile'] = SUPABASE_SCHEMA;
       }
       return request;
     }
