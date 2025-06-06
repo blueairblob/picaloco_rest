@@ -9,6 +9,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const express = require('express');
+const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 
 const app = express();
@@ -239,8 +240,15 @@ const swaggerUiOptions = {
   }
 };
 
-// Setup Swagger UI synchronously with fallback spec
+// Setup Swagger UI with proper static file serving
 console.log('Setting up Swagger UI with fallback spec...');
+
+// Serve static files first
+app.use('/docs', express.static(require('path').join(require.resolve('swagger-ui-dist/package.json'), '..'), {
+  index: false
+}));
+
+// Then serve the main swagger UI
 app.use('/docs', swaggerUi.serve);
 app.get('/docs', swaggerUi.setup(fallbackSpec, swaggerUiOptions));
 
