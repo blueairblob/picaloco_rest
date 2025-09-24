@@ -25,7 +25,7 @@ jobs:
             try {
               const { createClient } = require('@supabase/supabase-js');
               const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-              const { data, error } = await supabase.from('mobile_catalog_view').select('*').limit(1).schema('dev');
+              const { data, error } = await supabase.from('dev.mobile_catalog_view').select('*').limit(1);
               if (error) throw error;
               console.log('Ping successful:', data);
             } catch (err) {
