@@ -1,36 +1,40 @@
 name: Ping Supabase to Prevent Pausing
+
 on:
   schedule:
-    - cron: '0 9 * * 1,4' # Runs at 9:00 AM UTC every Monday and Thursday
+    - cron: '9 14 * * Mon,Thu'  # Runs at 2:09 PM UTC every Monday and Thursday
   workflow_dispatch: # Allows manual triggering
+
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20' # Updated to Node.js 20
-      - name: Install Supabase Client
-        run: npm install @supabase/supabase-js --force
-      - name: Ping Supabase
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          node -e "
-          (async () => {
-            try {
-              const { createClient } = require('@supabase/supabase-js');
-              const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-              const { data, error } = await supabase.from('dev.mobile_catalog_view').select('*').limit(1);
-              if (error) throw error;
-              console.log('Ping successful:', data);
-            } catch (err) {
-              console.error('Error pinging Supabase:', err.message);
-              process.exit(1);
-            }
-          })();
-          "
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Install Supabase Client
+      run: npm install @supabase/supabase-js@latest --force
+    - name: Ping Supabase
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        node -e "
+        (async () => {
+          try {
+            const { createClient } = require('@supabase/supabase-js');
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
+              db: { schema: 'dev' }
+            });
+            const { data, error } = await supabase.from('mobile_catalog_view').select('*').limit(1);
+            if (error) throw error;
+            console.log('Ping successful:', data);
+          } catch (err) {
+            console.error('Error pinging Supabase:', err.message);
+            process.exit(1);
+          }
+        })();
+        "
